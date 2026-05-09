@@ -15,6 +15,7 @@ usage() {
   --system             系统级安装（sudo pip），仅供多用户共享；部分发行版需 PEP 668 额外参数
   --no-desktop         不安装 ~/.local/share/applications 下的桌面入口
   --no-path            不向 ~/.profile 追加 PATH（仍可手动配置）
+  --git-hooks          为本仓库设置 git hooks（提交前自动递增 VERSION）
 
 环境变量:
   PYTHON=python3       使用的 Python 解释器
@@ -23,6 +24,7 @@ usage() {
   ./install.sh                          # 仅 pip 用户安装 + PATH + 菜单
   ./install.sh --install-deps -y        # 顺带 apt 装 Tk/pip 等（自动化脚本）
   ./install.sh --system                 # 安装到系统 Python（需 root）
+  ./install.sh --git-hooks              # 仅启用提交前自动递增版本号
 EOF
 }
 
@@ -33,6 +35,7 @@ ASSUME_YES=0
 SYSTEM_INSTALL=0
 INSTALL_DESKTOP=1
 INSTALL_PATH=1
+INSTALL_GIT_HOOKS=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -42,6 +45,7 @@ while [[ $# -gt 0 ]]; do
     --system) SYSTEM_INSTALL=1; shift ;;
     --no-desktop) INSTALL_DESKTOP=0; shift ;;
     --no-path) INSTALL_PATH=0; shift ;;
+    --git-hooks) INSTALL_GIT_HOOKS=1; shift ;;
     *) echo "未知参数: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
@@ -176,6 +180,15 @@ EOF
   chmod 0644 "$DESKTOP_FILE"
   echo "已安装桌面菜单项: $DESKTOP_FILE"
   command -v update-desktop-database &>/dev/null && update-desktop-database "$APP_DIR" 2>/dev/null || true
+fi
+
+if [[ "$INSTALL_GIT_HOOKS" -eq 1 ]]; then
+  if [[ -d "$REPO_ROOT/.git" ]]; then
+    git -C "$REPO_ROOT" config core.hooksPath .githooks
+    echo "已启用 git hooks：提交前将自动递增仓库根目录 VERSION 的补丁号。"
+  else
+    echo "提示: $REPO_ROOT 不是 git 克隆目录，已跳过 --git-hooks。"
+  fi
 fi
 
 echo ""

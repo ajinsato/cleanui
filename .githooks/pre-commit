@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# 提交前自动递增 VERSION 补丁号并纳入本次提交。
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+if [[ -n "${SKIP_VERSION_BUMP:-}" ]]; then
+  echo "[pre-commit] 已设置 SKIP_VERSION_BUMP，跳过版本递增。"
+  exit 0
+fi
+
+python3 "$ROOT/scripts/bump_version.py"
+git add "$ROOT/VERSION"

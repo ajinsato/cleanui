@@ -46,6 +46,7 @@ chmod +x install.sh    # 仅需首次
 | `--system` | **sudo** 系统级 pip 安装（多用户；部分发行版需 PEP 668，脚本会再试 `--break-system-packages`） |
 | `--no-desktop` | 不安装 `.desktop` |
 | `--no-path` | 不修改 `~/.profile` |
+| `--git-hooks` | 设置 `core.hooksPath=.githooks`，提交前自动递增 **VERSION** |
 
 示例：`./install.sh --install-deps -y`
 
@@ -128,7 +129,21 @@ export PATH="$HOME/.local/bin:$PATH"
 
 ---
 
-## 六、版本与许可
+## 六、版本号管理
 
-- 版本号见 **`pyproject.toml`** 或运行 **`cleanui --version`**。
+- **唯一来源**：仓库根目录的 **`VERSION`** 文件（形如 `主版本.次版本.补丁`，一行）。
+- **打包**：`pyproject.toml` 通过 **`[tool.setuptools.dynamic]`** 从该文件读取版本，勿手工改 `toml` 里的版本字段。
+- **界面与 CLI**：程序标题栏、关于区与 **`cleanui --version`** 均读取 **`cleanui.__version__`**（开发时优先读源码树中的 `VERSION`，安装包则回退到发行版元数据）。
+- **每次提交自动 +1**：克隆本仓库后执行一次：
+  ```bash
+  ./scripts/install-git-hooks.sh
+  ```
+  或 **`./install.sh --git-hooks`**（需在 git 仓库内）。启用后 **`git commit`** 会运行 **`scripts/bump_version.py`**，将 **`VERSION`** 的**补丁号加一并纳入本次提交**。
+- **跳过某次递增**（例如仅改文档、或 `git commit --amend` 不想再加版本）：
+  ```bash
+  SKIP_VERSION_BUMP=1 git commit ...
+  ```
+
+## 七、许可
+
 - 许可证：MIT（见 `pyproject.toml`）。

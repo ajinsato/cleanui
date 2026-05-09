@@ -36,6 +36,8 @@ os.environ.setdefault("XFT_RGBA", "rgb")
 import tkinter as tk
 from tkinter import ttk, messagebox, font
 
+from cleanui import __version__ as PACKAGE_VERSION
+
 # ── Font Detection ──────────────────────────────────────────
 
 def _font_family_index():
@@ -259,7 +261,6 @@ def _apply_tk_named_fonts(ui_family, mono_family):
 
 # ── Constants ──────────────────────────────────────────────
 
-VERSION = "1.2.1"
 HOME = Path.home()
 TMP = Path("/tmp")
 VAR_TMP = Path("/var/tmp")
@@ -862,7 +863,7 @@ class Cleaner:
 class CleanUIApp:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("CleanUI - 系统清理")
+        self.root.title(f"CleanUI · v{PACKAGE_VERSION}")
         self.root.geometry("900x720")
         self.root.minsize(640, 520)
         self.root.configure(bg=BG_ROOT)
@@ -951,7 +952,7 @@ class CleanUIApp:
             font=_font(19, bold=True), bg=BG_HEADER, fg=TEXT_PRIMARY
         ).pack(anchor=tk.W)
         tk.Label(
-            title_col, text=f"版本 {VERSION}",
+            title_col, text=f"版本 {PACKAGE_VERSION}",
             font=_font(9), bg=BG_HEADER, fg=TEXT_MUTED
         ).pack(anchor=tk.W)
 
@@ -1581,7 +1582,7 @@ def main():
     parser.add_argument(
         "--version",
         action="version",
-        version=f"%(prog)s {VERSION}",
+        version=f"%(prog)s {PACKAGE_VERSION}",
     )
     parser.parse_args()
 
