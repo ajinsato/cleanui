@@ -1056,9 +1056,12 @@ class CleanUIApp:
         )
         self.result_count_label.pack(side=tk.RIGHT)
 
-        # Canvas + scrollbar for results
-        self.canvas_frame = tk.Frame(self.root, bg=BG_DARK)
-        self.canvas_frame.pack(fill=tk.BOTH, expand=True, padx=28, pady=(8, 12))
+        # 中间整块：列表 +（清理时）日志，避免 log_frame 晚 pack 挤占错误区域
+        self._content_mid = tk.Frame(self.root, bg=BG_DARK)
+        self._content_mid.pack(fill=tk.BOTH, expand=True, padx=28, pady=(8, 12))
+
+        self.canvas_frame = tk.Frame(self._content_mid, bg=BG_DARK)
+        self.canvas_frame.pack(fill=tk.BOTH, expand=True)
 
         self.canvas = tk.Canvas(
             self.canvas_frame, bg=BG_DARK, bd=0,
@@ -1088,9 +1091,9 @@ class CleanUIApp:
         self.results_inner.bind("<Configure>", self._on_inner_configure)
         self.canvas.bind("<Configure>", self._on_canvas_configure)
 
-        # Mouse wheel scrolling
-        self.canvas.bind("<Enter>", lambda e: self._bind_mousewheel())
-        self.canvas.bind("<Leave>", lambda e: self._unbind_mousewheel())
+        # 滚轮：指针在整个内容区（列表+滚动条+下方日志）内时使用全局绑定，避免仅绑 Canvas 时滚动条缝隙失焦
+        self._content_mid.bind("<Enter>", self._on_results_enter)
+        self._content_mid.bind("<Leave>", self._on_results_leave)
 
         # Placeholder
         self.placeholder_label = tk.Label(
@@ -1100,8 +1103,8 @@ class CleanUIApp:
         )
         self.placeholder_label.pack()
 
-        # ── Log area (hidden by default) ──
-        self.log_frame = tk.Frame(self.root, bg=BORDER_SUBTLE)
+        # ── Log area（挂在内容区底部，默认不 pack）──
+        self.log_frame = tk.Frame(self._content_mid, bg=BORDER_SUBTLE)
         self.log_inner = tk.Frame(self.log_frame, bg=BG_HEADER)
         self.log_inner.pack(fill=tk.BOTH, expand=True, padx=1, pady=(0, 1))
         self.log_text = tk.Text(
@@ -1127,6 +1130,8 @@ class CleanUIApp:
         ).pack(fill=tk.X)
         self._bottom_frame.pack(side=tk.BOTTOM, fill=tk.X)
 
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close_request)
+
         # Configure ttk styles
         self._setup_styles()
 
@@ -1143,21 +1148,60 @@ class CleanUIApp:
             thickness=10,
         )
 
+    def _on_results_enter(self, _event=None):
+        self._bind_mousewheel()
+
+    def _on_results_leave(self, _event=None):
+        self._unbind_mousewheel()
+
     def _bind_mousewheel(self):
-        self.canvas.bind_all("<Button-4>", self._on_mousewheel)
-        self.canvas.bind_all("<Button-5>", self._on_mousewheel)
-        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+        self.root.bind_all("<Button-4>", self._on_mousewheel)
+        self.root.bind_all("<Button-5>", self._on_mousewheel)
+        self.root.bind_all("<MouseWheel>", self._on_mousewheel)
 
     def _unbind_mousewheel(self):
-        self.canvas.unbind_all("<Button-4>")
-        self.canvas.unbind_all("<Button-5>")
-        self.canvas.unbind_all("<MouseWheel>")
+        self.root.unbind_all("<Button-4>")
+        self.root.unbind_all("<Button-5>")
+        self.root.unbind_all("<MouseWheel>")
+
+    @staticmethod
+    def _widget_under_pointer_is(widget, target):
+        cur = widget
+        for _ in range(64):
+            if cur is None:
+                break
+            if cur == target:
+                return True
+            try:
+                cur = cur.master
+            except (tk.TclError, AttributeError):
+                break
+        return False
+
+    def _on_close_request(self):
+        self._unbind_mousewheel()
+        self.root.destroy()
 
     def _on_mousewheel(self, event):
+        w = self.root.winfo_containing(event.x_root, event.y_root)
+        try:
+            if (
+                self.log_frame.winfo_ismapped()
+                and self._widget_under_pointer_is(w, self.log_text)
+            ):
+                n = 3
+                if event.num == 4 or getattr(event, "delta", 0) > 0:
+                    self.log_text.yview_scroll(-n, "units")
+                elif event.num == 5 or getattr(event, "delta", 0) < 0:
+                    self.log_text.yview_scroll(n, "units")
+                return "break"
+        except tk.TclError:
+            pass
+
         n = 3
-        if event.num == 4 or event.delta > 0:
+        if event.num == 4 or getattr(event, "delta", 0) > 0:
             self.canvas.yview_scroll(-n, "units")
-        elif event.num == 5 or event.delta < 0:
+        elif event.num == 5 or getattr(event, "delta", 0) < 0:
             self.canvas.yview_scroll(n, "units")
 
     def _on_inner_configure(self, event):
@@ -1167,6 +1211,9 @@ class CleanUIApp:
 
     def _on_canvas_configure(self, event):
         self.canvas.itemconfig(self.canvas_window, width=event.width)
+        bbox = self.canvas.bbox("all")
+        if bbox:
+            self.canvas.configure(scrollregion=bbox)
 
     def _update_disk_info(self):
         """Update disk usage info."""
@@ -1218,13 +1265,16 @@ class CleanUIApp:
             results = scanner.scan_all()
         except Exception as e:
             results = []
-            self.root.after(0, lambda: messagebox.showerror("扫描错误", str(e)))
+            err_msg = str(e)
+            self.root.after(
+                0, lambda m=err_msg: messagebox.showerror("扫描错误", m, parent=self.root)
+            )
 
         self.scan_results = results
         self.root.after(0, self._on_scan_done)
 
     def _scan_progress(self, pct, msg):
-        self.root.after(0, lambda: self._update_progress(pct, msg))
+        self.root.after(0, lambda p=pct, m=msg: self._update_progress(p, m))
 
     def _update_progress(self, pct, msg):
         self.progress_var.set(pct)
@@ -1252,6 +1302,10 @@ class CleanUIApp:
             self.status_var.set("扫描完成 - 系统很干净")
             self.result_count_label.config(text="发现 0 项")
             self.stats_found_label.config(text="可清理: 0 项")
+            self.results_inner.update_idletasks()
+            bb = self.canvas.bbox("all")
+            if bb:
+                self.canvas.configure(scrollregion=bb)
             self._update_disk_info()
             return
 
@@ -1310,6 +1364,10 @@ class CleanUIApp:
             tk.Label(
                 pill, text=text, font=_font(10), bg=BG_MID, fg=color
             ).pack(padx=12, pady=6)
+
+        self.canvas.update_idletasks()
+        cw = max(self.canvas.winfo_width(), 320)
+        self._item_desc_wrap = max(200, cw - 140)
 
         # Category items
         for item in self.scan_results:
@@ -1383,7 +1441,7 @@ class CleanUIApp:
             tk.Label(
                 info_frame, text=desc, font=_font(10),
                 bg=BG_CARD, fg=TEXT_SECONDARY,
-                wraplength=520,
+                wraplength=getattr(self, "_item_desc_wrap", 400),
                 justify=tk.LEFT,
             ).pack(anchor=tk.W)
 
@@ -1447,8 +1505,9 @@ class CleanUIApp:
 
         if any_checked:
             selected_size = sum(
-                item["size"] for item in self.scan_results
-                if self.check_vars.get(item["id"], tk.BooleanVar(value=False)).get()
+                item["size"]
+                for item in self.scan_results
+                if (cv := self.check_vars.get(item["id"])) is not None and cv.get()
             )
             self.clean_btn.config(
                 text=f"🧹  清理选中 ({fmt_size(selected_size)})",
@@ -1476,8 +1535,9 @@ class CleanUIApp:
             return
 
         selected = [
-            item for item in self.scan_results
-            if self.check_vars.get(item["id"], tk.BooleanVar(value=False)).get()
+            item
+            for item in self.scan_results
+            if (cv := self.check_vars.get(item["id"])) is not None and cv.get()
         ]
 
         if not selected:
@@ -1502,7 +1562,7 @@ class CleanUIApp:
         self.status_var.set("正在清理...")
 
         # Show log
-        self.log_frame.pack(fill=tk.X, padx=28, pady=(6, 8))
+        self.log_frame.pack(fill=tk.X, pady=(6, 8))
         self.log_text.config(state=tk.NORMAL)
         self.log_text.delete("1.0", tk.END)
         self.log_text.insert(tk.END, f"[{datetime.now().strftime('%H:%M:%S')}] 开始清理 {len(selected)} 项...\n")
@@ -1563,13 +1623,16 @@ class CleanUIApp:
 
         self._update_disk_info()
 
-        # Prompt re-scan
         if self.clean_success > 0:
-            self.root.after(500, lambda: messagebox.showinfo(
-                "清理完成",
-                f"成功清理 {self.clean_success} 项\n失败 {self.clean_failed} 项\n\n建议重新扫描确认结果",
-                parent=self.root
-            ))
+            cs, cf = self.clean_success, self.clean_failed
+            self.root.after(
+                500,
+                lambda a=cs, b=cf: messagebox.showinfo(
+                    "清理完成",
+                    f"成功清理 {a} 项\n失败 {b} 项\n\n建议重新扫描确认结果",
+                    parent=self.root,
+                ),
+            )
 
 
 def _gui_environment_ready():
