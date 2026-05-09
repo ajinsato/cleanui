@@ -291,24 +291,47 @@ BTN_SECONDARY_HOVER = "#353550"
 CHECK_SELECT_BG = "#4e4e68"
 
 
-def _detect_icon_font(size=17):
-    """列表图标多为 Emoji：尽量用彩色 Emoji 字体，否则退回界面字体。"""
-    try:
-        sz = max(6, int(size) + _FONT_PT_EXTRA)
-    except (TypeError, ValueError):
-        sz = max(6, 17 + _FONT_PT_EXTRA)
-    exact, lower_to_exact = _font_family_index()
-    for name in (
-        "Noto Color Emoji",
-        "Noto Emoji",
-        "Segoe UI Emoji",
-        "Apple Color Emoji",
-        "JoyPixels",
-    ):
-        resolved = _resolve_family(name, exact, lower_to_exact)
-        if resolved and _tk_font_works(resolved, sz):
-            return (resolved, sz)
-    return _font(size)
+def tk_safe_str(value):
+    """
+    路径/描述里若含 Emoji、代理对上字符等，Tk + 常见界面字体会显示为问号或豆腐块；
+    去掉 NUL、替换符，并剥离多数 Emoji 区段（U+1F000–U+1FFFF）。
+    """
+    if value is None:
+        return ""
+    s = str(value).replace("\x00", "")
+    out = []
+    for ch in s:
+        o = ord(ch)
+        if o == 0xFFFD:
+            continue
+        if 0xD800 <= o <= 0xDFFF:
+            continue
+        if 0x1F000 <= o <= 0x1FFFF:
+            continue
+        # 杂项符号、装饰符号（天气、扑克等）在部分 Tk 字体下也会变成问号
+        if 0x2600 <= o <= 0x26FF:
+            continue
+        if 0x2700 <= o <= 0x27BF:
+            continue
+        if 0xFE00 <= o <= 0xFE0F:
+            continue
+        out.append(ch)
+    return "".join(out)
+
+
+def fmt_size(size_bytes):
+    """Human-readable byte size."""
+    if size_bytes == 0:
+        return "0 B"
+    units = ["B", "KB", "MB", "GB", "TB"]
+    i = 0
+    s = float(size_bytes)
+    while s >= 1024 and i < len(units) - 1:
+        s /= 1024
+        i += 1
+    if s < 10:
+        return f"{s:.1f} {units[i]}"
+    return f"{int(s)} {units[i]}"
 
 
 def _bind_btn_hover(btn, base_bg, hover_bg, active_bg=None):
@@ -325,28 +348,6 @@ def _bind_btn_hover(btn, base_bg, hover_bg, active_bg=None):
 
     btn.bind("<Enter>", on_enter)
     btn.bind("<Leave>", on_leave)
-
-
-def tk_safe_str(value):
-    """去掉 NUL 等易干扰 Tk 文本渲染的字符。"""
-    if value is None:
-        return ""
-    return str(value).replace("\x00", "\ufffd")
-
-
-def fmt_size(size_bytes):
-    """Human-readable byte size."""
-    if size_bytes == 0:
-        return "0 B"
-    units = ["B", "KB", "MB", "GB", "TB"]
-    i = 0
-    s = float(size_bytes)
-    while s >= 1024 and i < len(units) - 1:
-        s /= 1024
-        i += 1
-    if s < 10:
-        return f"{s:.1f} {units[i]}"
-    return f"{int(s)} {units[i]}"
 
 
 def count_files(path, max_depth=3):
@@ -502,7 +503,7 @@ class Scanner:
                     "size": size,
                     "count": count,
                     "safe_level": "caution",
-                    "icon": "📦",
+                    "icon": "[包]",
                     "clean_type": "command",
                     "clean_cmd": "sudo apt-get clean",
                     "clean_desc": "将运行: sudo apt-get clean"
@@ -555,7 +556,7 @@ class Scanner:
             "size": size_bytes,
             "count": old_count,
             "safe_level": "danger",
-            "icon": "🐧",
+            "icon": "[核]",
             "clean_type": "command",
             "clean_cmd": "sudo apt-get autoremove --purge -y",
             "clean_desc": "将运行: sudo apt-get autoremove --purge -y",
@@ -586,7 +587,7 @@ class Scanner:
                         "size": size,
                         "count": 0,
                         "safe_level": "caution",
-                        "icon": "📋",
+                        "icon": "[志]",
                         "clean_type": "command",
                         "clean_cmd": "sudo journalctl --vacuum-size=50M 2>/dev/null",
                         "clean_desc": "将保留最近50MB日志 (sudo journalctl --vacuum-size=50M)"
@@ -607,7 +608,7 @@ class Scanner:
                         "size": size,
                         "count": count,
                         "safe_level": "safe",
-                        "icon": "🗑️",
+                        "icon": "[废]",
                         "clean_type": "delete",
                         "clean_path": str(trash_files),
                         "clean_desc": "将清空回收站"
@@ -627,7 +628,7 @@ class Scanner:
                     "size": size,
                     "count": count,
                     "safe_level": "safe",
-                    "icon": "🖼️",
+                    "icon": "[图]",
                     "clean_type": "delete",
                     "clean_path": str(thumb_dir),
                     "clean_desc": "将删除缩略图缓存目录内容"
@@ -663,7 +664,7 @@ class Scanner:
                     "size": total_size,
                     "count": total_count,
                     "safe_level": "safe",
-                    "icon": "📁",
+                    "icon": "[夹]",
                     "clean_type": "delete_dir_contents",
                     "clean_path": str(cache_dir),
                     "clean_exclude": list(exclude),
@@ -688,7 +689,7 @@ class Scanner:
                         "size": total_size,
                         "count": count,
                         "safe_level": "safe",
-                        "icon": "🌡️",
+                        "icon": "[暂]",
                         "clean_type": "command",
                         "clean_cmd": (
                             f"find {q} -type f -atime +1 -delete 2>/dev/null; "
@@ -711,7 +712,7 @@ class Scanner:
                     "size": size,
                     "count": count,
                     "safe_level": "caution",
-                    "icon": "🐍",
+                    "icon": "[Py]",
                     "clean_type": "delete_dir_contents",
                     "clean_path": str(pip_cache),
                     "clean_desc": "将清除 pip 下载缓存"
@@ -725,13 +726,7 @@ class Scanner:
             count, size = count_files(npm_cache, max_depth=4)
             if size > 0:
                 items.append({
-                    "id": "npm-cache",
-                    "name": "npm 缓存",
-                    "description": str(npm_cache),
-                    "size": size,
-                    "count": count,
-                    "safe_level": "caution",
-                    "icon": "📦",
+                    "icon": "[npm]",
                     "clean_type": "command",
                     "clean_cmd": "npm cache clean --force 2>/dev/null",
                     "clean_desc": "将运行: npm cache clean --force"
@@ -754,7 +749,7 @@ class Scanner:
                     "size": size,
                     "count": count,
                     "safe_level": "danger",
-                    "icon": "📌",
+                    "icon": "[Sp]",
                     "clean_type": "command",
                     "clean_cmd": "sudo rm -f /var/lib/snapd/cache/* 2>/dev/null",
                     "clean_desc": "将删除 Snap 缓存 (需 sudo)"
@@ -793,7 +788,7 @@ class Scanner:
                     "size": total_size,
                     "count": count,
                     "safe_level": "caution",
-                    "icon": "📜",
+                    "icon": "[卷]",
                     "clean_type": "command",
                     "clean_cmd": "sudo find /var/log -type f \\( -name '*.gz' -o -name '*.old' -o -name '*.1' -o -name '*.2' -o -name '*.3' \\) -delete 2>/dev/null",
                     "clean_desc": "将删除旧的压缩日志 (需 sudo)"
@@ -820,7 +815,7 @@ class Scanner:
                         "size": size,
                         "count": count,
                         "safe_level": "safe",
-                        "icon": "🌐",
+                        "icon": "[览]",
                         "clean_type": "delete_dir_contents",
                         "clean_path": str(bpath),
                         "clean_desc": f"将清理 {bname} 缓存"
@@ -876,7 +871,7 @@ class Cleaner:
                         return True, "命令执行成功"
                     tail = out.strip()
                     if len(tail) > 600:
-                        tail = tail[:600] + "…"
+                        tail = tail[:600] + "..."
                     return False, f"命令失败: {tail}"
 
         except PermissionError:
@@ -892,7 +887,7 @@ class Cleaner:
 class CleanUIApp:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title(f"CleanUI · v{PACKAGE_VERSION}")
+        self.root.title(f"CleanUI v{PACKAGE_VERSION}")
         self.root.geometry("900x720")
         self.root.minsize(640, 520)
         self.root.configure(bg=BG_ROOT)
@@ -913,8 +908,6 @@ class CleanUIApp:
             _FONT_PT_EXTRA = 0
 
         _apply_tk_named_fonts(CJK_FONT, CJK_MONO_FONT)
-
-        self._icon_label_font = _detect_icon_font(17)
 
         base_pt = 11 + _FONT_PT_EXTRA
         small_pt = 10 + _FONT_PT_EXTRA
@@ -971,16 +964,8 @@ class CleanUIApp:
         title_frame = tk.Frame(header, bg=BG_HEADER)
         title_frame.pack(expand=True)
 
-        tk.Label(
-            title_frame,
-            text="🛡️",
-            font=_detect_icon_font(26),
-            bg=BG_HEADER,
-            fg=GREEN_SAFE,
-        ).pack(side=tk.LEFT, padx=(0, 10))
-
         title_col = tk.Frame(title_frame, bg=BG_HEADER)
-        title_col.pack(side=tk.LEFT)
+        title_col.pack(side=tk.LEFT, padx=(20, 0))
         tk.Label(
             title_col, text="CleanUI 系统清理",
             font=_font(19, bold=True), bg=BG_HEADER, fg=TEXT_PRIMARY
@@ -995,7 +980,7 @@ class CleanUIApp:
 
         # Subtitle
         tk.Label(
-            self.root, text="一键扫描 · 安全清理 · 释放磁盘空间",
+            self.root, text="一键扫描 | 安全清理 | 释放磁盘空间",
             font=_font(11), bg=BG_ROOT, fg=TEXT_SECONDARY
         ).pack(pady=(12, 0))
 
@@ -1019,7 +1004,7 @@ class CleanUIApp:
             bg=BG_MID, fg=ACCENT_BLUE
         )
         self.stats_found_label.pack(side=tk.RIGHT, padx=(8, 16))
-        self.stats_found_label.config(text="可清理: —")
+        self.stats_found_label.config(text="可清理: -")
 
         self._update_disk_info()
 
@@ -1028,7 +1013,7 @@ class CleanUIApp:
         btn_frame.pack(pady=(18, 12))
 
         self.scan_btn = tk.Button(
-            btn_frame, text="🔍  开始扫描", font=_font(12, bold=True),
+            btn_frame, text="开始扫描", font=_font(12, bold=True),
             bg=BTN_SCAN, fg="white", activebackground=BTN_SCAN_HOVER,
             activeforeground="white", relief=tk.FLAT, padx=28, pady=11,
             cursor="hand2", bd=0, command=self._start_scan
@@ -1055,7 +1040,7 @@ class CleanUIApp:
         _bind_btn_hover(self.deselect_all_btn, BG_MID, BTN_SECONDARY_HOVER, BTN_SECONDARY_HOVER)
 
         self.clean_btn = tk.Button(
-            btn_frame, text="🧹  立即清理", font=_font(12, bold=True),
+            btn_frame, text="立即清理", font=_font(12, bold=True),
             bg=BG_MID, fg=TEXT_MUTED, activebackground=BG_MID,
             activeforeground=TEXT_MUTED, relief=tk.FLAT, padx=28, pady=11,
             cursor="hand2", bd=0, state=tk.DISABLED, command=self._start_clean
@@ -1257,10 +1242,10 @@ class CleanUIApp:
             total = usage.total
             pct = (1 - free / total) * 100
             self.stats_disk_label.config(
-                text=f"💾 磁盘: {fmt_size(free)} 可用 / {fmt_size(total)} ({pct:.0f}% 已用)"
+                text=f"磁盘: {fmt_size(free)} 可用 / {fmt_size(total)} ({pct:.0f}% 已用)"
             )
         except OSError:
-            self.stats_disk_label.config(text="💾 磁盘信息不可用")
+            self.stats_disk_label.config(text="磁盘信息不可用")
 
     # ── Scan ──
 
@@ -1275,7 +1260,7 @@ class CleanUIApp:
         for widget in self.results_inner.winfo_children():
             widget.destroy()
 
-        self.scan_btn.config(text="⏳ 扫描中...", bg=BG_MID, state=tk.DISABLED)
+        self.scan_btn.config(text="扫描中...", bg=BG_MID, state=tk.DISABLED)
         self.clean_btn.config(state=tk.DISABLED, bg=BG_MID, fg=TEXT_MUTED)
         self.select_all_btn.config(state=tk.DISABLED)
         self.deselect_all_btn.config(state=tk.DISABLED)
@@ -1287,7 +1272,7 @@ class CleanUIApp:
         self.progress_var.set(0)
         self.progress_label.config(text="正在初始化扫描...")
         self.status_var.set("扫描中...")
-        self.stats_found_label.config(text="可清理: 扫描中…")
+        self.stats_found_label.config(text="可清理: 扫描中...")
 
         # Run scan in thread
         t = threading.Thread(target=self._run_scan, daemon=True)
@@ -1320,7 +1305,7 @@ class CleanUIApp:
         self.progress_label.pack_forget()
 
         self.scan_btn.config(
-            text="🔍  重新扫描",
+            text="重新扫描",
             bg=BTN_SCAN,
             state=tk.NORMAL,
             activebackground=BTN_SCAN_HOVER,
@@ -1329,7 +1314,7 @@ class CleanUIApp:
         if not self.scan_results:
             self.placeholder_label = tk.Label(
                 self.results_inner,
-                text="🎉 太棒了！没有发现需要清理的垃圾文件",
+                text="太棒了，未发现需要清理的垃圾文件",
                 font=_font(13), bg=BG_DARK, fg=GREEN_SAFE, pady=60
             )
             self.placeholder_label.pack()
@@ -1345,7 +1330,7 @@ class CleanUIApp:
 
         total_size = sum(item["size"] for item in self.scan_results)
         self.stats_found_label.config(
-            text=f"可清理: {len(self.scan_results)} 项 · {fmt_size(total_size)}"
+            text=f"可清理: {len(self.scan_results)} 项  {fmt_size(total_size)}"
         )
         self.result_count_label.config(
             text=f"发现 {len(self.scan_results)} 项，共 {fmt_size(total_size)}"
@@ -1389,9 +1374,9 @@ class CleanUIApp:
         legend = tk.Frame(self.results_inner, bg=BG_DARK)
         legend.pack(fill=tk.X, pady=(0, 10))
         for text, color in [
-            ("●  安全", GREEN_SAFE),
-            ("●  建议", YELLOW_CAUTION),
-            ("●  注意", RED_DANGER),
+            ("安全清理", GREEN_SAFE),
+            ("建议清理", YELLOW_CAUTION),
+            ("需谨慎", RED_DANGER),
         ]:
             pill = tk.Frame(legend, bg=BG_MID, highlightthickness=0)
             pill.pack(side=tk.LEFT, padx=(0, 10))
@@ -1459,8 +1444,8 @@ class CleanUIApp:
 
         tk.Label(
             card_body,
-            text=tk_safe_str(item.get("icon", "📄")),
-            font=self._icon_label_font,
+            text=tk_safe_str(item.get("icon", "[项]")),
+            font=_font(11, bold=True),
             bg=BG_CARD,
         ).pack(side=tk.LEFT, padx=(4, 12))
 
@@ -1553,7 +1538,7 @@ class CleanUIApp:
                 if (cv := self.check_vars.get(item["id"])) is not None and cv.get()
             )
             self.clean_btn.config(
-                text=f"🧹  清理选中 ({fmt_size(selected_size)})",
+                text=f"清理选中 ({fmt_size(selected_size)})",
                 state=tk.NORMAL,
                 bg=BTN_CLEAN,
                 fg="white",
@@ -1562,7 +1547,7 @@ class CleanUIApp:
             )
         else:
             self.clean_btn.config(
-                text="🧹  立即清理",
+                text="立即清理",
                 state=tk.DISABLED,
                 bg=BG_MID,
                 fg=TEXT_MUTED,
@@ -1592,14 +1577,14 @@ class CleanUIApp:
 
         msg = f"确认清理 {len(selected)} 项，释放 {fmt_size(total)} 空间？"
         if has_danger:
-            msg += "\n\n⚠️  包含高风险项目，请确认后再操作"
+            msg += "\n\n【注意】包含高风险项目，请确认后再操作"
 
         if not messagebox.askyesno("确认清理", msg, parent=self.root):
             return
 
         self.cleaning = True
         self.scan_btn.config(state=tk.DISABLED)
-        self.clean_btn.config(text="⏳ 清理中...", state=tk.DISABLED)
+        self.clean_btn.config(text="清理中...", state=tk.DISABLED)
         self.select_all_btn.config(state=tk.DISABLED)
         self.deselect_all_btn.config(state=tk.DISABLED)
         self.status_var.set("正在清理...")
@@ -1637,10 +1622,10 @@ class CleanUIApp:
             success, msg = Cleaner.clean_item(item, log_callback=self._log)
             if success:
                 self.clean_success += 1
-                self._log(f"  ✓ {msg}")
+                self._log(f"  [OK] {msg}")
             else:
                 self.clean_failed += 1
-                self._log(f"  ✗ {msg}")
+                self._log(f"  [失败] {msg}")
 
         self._log(f"\n清理完成! 成功: {self.clean_success}, 失败: {self.clean_failed}")
         self.root.after(0, self._on_clean_done)
@@ -1654,7 +1639,7 @@ class CleanUIApp:
 
         if self.clean_failed == 0:
             self.clean_btn.config(
-                text="✅ 清理完成",
+                text="清理完成",
                 state=tk.DISABLED,
                 bg=GREEN_SAFE,
                 fg="white",
