@@ -7,6 +7,7 @@ CleanUI - Linux System Cleanup Utility
 
 import os
 import sys
+import shlex
 
 # UTF-8 stdout/stderr & locale hints (helps subprocess / Tk on some distros)
 os.environ.setdefault("PYTHONUTF8", "1")
@@ -258,7 +259,7 @@ def _apply_tk_named_fonts(ui_family, mono_family):
 
 # ── Constants ──────────────────────────────────────────────
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 HOME = Path.home()
 TMP = Path("/tmp")
 VAR_TMP = Path("/var/tmp")
@@ -321,19 +322,67 @@ def count_files(path, max_depth=3):
     return count, total_size
 
 
+def count_files_atime_old(
+    root: Path,
+    age_seconds: float = 86400.0,
+    max_depth: int = 128,
+):
+    """
+    统计「访问时间早于 age_seconds 之前」的普通文件体积与数量；
+    与 GNU find「-type f -atime +1」口径接近（连续时间近似，非按日历日对齐）。
+    不跟随符号链接。
+    """
+    cutoff = time.time() - age_seconds
+    count = 0
+    total_size = 0
+    stack = [(str(root), 0)]
+    while stack:
+        path, depth = stack.pop()
+        if depth > max_depth:
+            continue
+        try:
+            with os.scandir(path) as it:
+                for entry in it:
+                    try:
+                        if entry.is_symlink():
+                            continue
+                        if entry.is_file(follow_symlinks=False):
+                            st = entry.stat()
+                            if st.st_atime < cutoff:
+                                count += 1
+                                total_size += st.st_size
+                        elif entry.is_dir(follow_symlinks=False):
+                            stack.append((entry.path, depth + 1))
+                    except (OSError, PermissionError):
+                        pass
+        except (OSError, PermissionError):
+            pass
+    return count, total_size
+
+
 def run_cmd(cmd, timeout=30):
-    """Run a shell command, return (success, output)."""
+    """
+    执行命令。cmd 为 str 时使用 shell；为 list 时使用无 shell 调用（更安全）。
+    返回 (success, message)；失败时优先返回 stderr。
+    """
+    shell = isinstance(cmd, str)
     try:
         r = subprocess.run(
             cmd,
-            shell=True,
+            shell=shell,
             capture_output=True,
             text=True,
             encoding="utf-8",
             errors="replace",
             timeout=timeout,
         )
-        return r.returncode == 0, r.stdout.strip() + r.stderr.strip()
+        stdout = (r.stdout or "").strip()
+        stderr = (r.stderr or "").strip()
+        if r.returncode == 0:
+            merged = stdout + (("\n" + stderr) if stderr else "")
+            return True, merged
+        detail = stderr or stdout or "(无输出)"
+        return False, detail
     except subprocess.TimeoutExpired:
         return False, "命令超时"
     except Exception as e:
@@ -393,7 +442,7 @@ class Scanner:
         if apt_cache.exists():
             try:
                 count, size = count_files(apt_cache, max_depth=2)
-            except:
+            except (OSError, PermissionError):
                 count, size = 0, 0
             if size > 0:
                 items.append({
@@ -412,42 +461,60 @@ class Scanner:
 
     def scan_old_kernels(self):
         items = []
-        ok, out = run_cmd("dpkg -l 'linux-*' 2>/dev/null | grep -E '^ii' | grep -E 'linux-(image|headers)-[0-9]'")
-        if ok and out:
-            lines = out.strip().split('\n')
-            # Find current kernel version
-            ok2, current_ver = run_cmd("uname -r")
-            current_ver = current_ver.strip()
-            old_count = 0
-            for line in lines:
-                parts = line.split()
-                if len(parts) >= 2:
-                    pkg = parts[1]
-                    # Skip current kernel
-                    if current_ver in pkg:
-                        continue
-                    # Match versioned kernel packages
-                    if re.search(r'linux-(image|headers)-\d+\.\d+\.\d+', pkg):
-                        old_count += 1
-            if old_count > 0:
-                # Rough size estimate
-                items.append({
-                    "id": "old-kernels",
-                    "name": "旧内核文件",
-                    "description": f"检测到 {old_count} 个旧内核相关包",
-                    "size": old_count * 100 * 1024 * 1024,  # rough estimate ~100MB each
-                    "count": old_count,
-                    "safe_level": "danger",
-                    "icon": "🐧",
-                    "clean_type": "command",
-                    "clean_cmd": "sudo apt-get autoremove --purge -y",
-                    "clean_desc": "将运行: sudo apt-get autoremove --purge -y"
-                })
+        ok_u, current_ver = run_cmd(["uname", "-r"], timeout=5)
+        if not ok_u:
+            return items
+        current_ver = current_ver.strip()
+        ok, out = run_cmd(
+            "dpkg -l 'linux-*' 2>/dev/null | grep -E '^ii' | grep -E 'linux-(image|headers)-[0-9]'",
+            timeout=45,
+        )
+        if not (ok and out):
+            return items
+        lines = out.strip().split("\n")
+        old_pkgs = []
+        for line in lines:
+            parts = line.split()
+            if len(parts) < 2:
+                continue
+            pkg = parts[1]
+            if current_ver in pkg:
+                continue
+            if re.search(r"linux-(image|headers)-\d+\.\d+\.\d+", pkg):
+                old_pkgs.append(pkg)
+        if not old_pkgs:
+            return items
+        old_count = len(old_pkgs)
+        size_bytes = old_count * 80 * 1024 * 1024
+        ok_sz, sz_out = run_cmd(
+            ["dpkg-query", "-W", "-f", "${Installed-Size}\n"] + old_pkgs,
+            timeout=60,
+        )
+        if ok_sz and sz_out.strip():
+            total_kb = 0
+            for line in sz_out.splitlines():
+                line = line.strip()
+                if line.isdigit():
+                    total_kb += int(line)
+            if total_kb > 0:
+                size_bytes = total_kb * 1024
+        items.append({
+            "id": "old-kernels",
+            "name": "旧内核文件",
+            "description": f"检测到 {old_count} 个旧内核相关包（体积来自 dpkg 登记大小）",
+            "size": size_bytes,
+            "count": old_count,
+            "safe_level": "danger",
+            "icon": "🐧",
+            "clean_type": "command",
+            "clean_cmd": "sudo apt-get autoremove --purge -y",
+            "clean_desc": "将运行: sudo apt-get autoremove --purge -y",
+        })
         return items
 
     def scan_journal_logs(self):
         items = []
-        ok, out = run_cmd("journalctl --disk-usage 2>/dev/null")
+        ok, out = run_cmd(["journalctl", "--disk-usage"], timeout=15)
         if ok and out:
             m = re.search(r'(\d+\.?\d*)\s*([GMKBgm])', out)
             if m:
@@ -534,9 +601,9 @@ class Scanner:
                             c, s = count_files(entry.path, max_depth=3)
                             total_count += c
                             total_size += s
-                    except:
+                    except (OSError, PermissionError):
                         pass
-            except:
+            except (OSError, PermissionError):
                 pass
             if total_size > 10 * 1024 * 1024:  # > 10MB
                 items.append({
@@ -558,38 +625,26 @@ class Scanner:
         items = []
         for tmp_path, name in [(TMP, "系统临时文件 /tmp"), (VAR_TMP, "系统临时文件 /var/tmp")]:
             if tmp_path.exists():
-                # Only count files older than 1 day
-                cutoff = time.time() - 86400
-                count = 0
-                total_size = 0
                 try:
-                    for entry in os.scandir(tmp_path):
-                        try:
-                            if entry.is_file(follow_symlinks=False):
-                                st = entry.stat()
-                                if st.st_mtime < cutoff:
-                                    count += 1
-                                    total_size += st.st_size
-                            elif entry.is_dir(follow_symlinks=False):
-                                c, s = count_files(entry.path, max_depth=2)
-                                count += c
-                                total_size += s
-                        except:
-                            pass
-                except:
-                    pass
+                    count, total_size = count_files_atime_old(tmp_path)
+                except (OSError, PermissionError):
+                    count, total_size = 0, 0
                 if total_size > 0:
+                    q = shlex.quote(str(tmp_path))
                     items.append({
                         "id": f"temp-{tmp_path.name}",
                         "name": name,
-                        "description": f"超过1天未修改的临时文件",
+                        "description": "访问时间早于约 24 小时的临时文件（与 find -atime +1 口径接近）",
                         "size": total_size,
                         "count": count,
                         "safe_level": "safe",
                         "icon": "🌡️",
                         "clean_type": "command",
-                        "clean_cmd": f"find {tmp_path} -type f -atime +1 -delete 2>/dev/null; find {tmp_path} -type d -empty -delete 2>/dev/null",
-                        "clean_desc": f"将删除 {tmp_path} 中超过1天的文件"
+                        "clean_cmd": (
+                            f"find {q} -type f -atime +1 -delete 2>/dev/null; "
+                            f"find {q} -type d -empty -delete 2>/dev/null"
+                        ),
+                        "clean_desc": f"将删除 {tmp_path} 下长时间未访问的临时文件",
                     })
         return items
 
@@ -639,7 +694,7 @@ class Scanner:
         if snap_cache.exists():
             try:
                 count, size = count_files(snap_cache, max_depth=2)
-            except:
+            except (OSError, PermissionError):
                 count, size = 0, 0
             if size > 0:
                 items.append({
@@ -667,15 +722,18 @@ class Scanner:
                     try:
                         if entry.is_file(follow_symlinks=False):
                             name = entry.name
-                            # Match rotated/compressed logs
-                            if name.endswith(('.gz', '.old', '.1', '.2', '.3', '.4', '.5')) or \
-                               re.search(r'\.\d{8}$', name) or \
-                               name.endswith('.log') and entry.stat().st_size > 50 * 1024 * 1024:
-                                total_size += entry.stat().st_size
+                            st = entry.stat()
+                            sz = st.st_size
+                            if (
+                                name.endswith((".gz", ".old", ".1", ".2", ".3", ".4", ".5"))
+                                or re.search(r"\.\d{8}$", name)
+                                or (name.endswith(".log") and sz > 50 * 1024 * 1024)
+                            ):
+                                total_size += sz
                                 count += 1
-                    except:
+                    except (OSError, PermissionError):
                         pass
-            except:
+            except (OSError, PermissionError):
                 pass
             if total_size > 0:
                 items.append({
@@ -765,9 +823,11 @@ class Cleaner:
                     log(f"执行: {cmd}")
                     ok, out = run_cmd(cmd, timeout=120)
                     if ok:
-                        return True, f"命令执行成功"
-                    else:
-                        return False, f"命令失败: {out[:200]}"
+                        return True, "命令执行成功"
+                    tail = out.strip()
+                    if len(tail) > 600:
+                        tail = tail[:600] + "…"
+                    return False, f"命令失败: {tail}"
 
         except PermissionError:
             return False, "权限不足，请使用 sudo 运行此应用"
@@ -825,7 +885,7 @@ class CleanUIApp:
         # Set app icon (use default for now)
         try:
             self.root.iconphoto(True, tk.PhotoImage(width=1, height=1))
-        except:
+        except tk.TclError:
             pass
 
         # State
@@ -1064,7 +1124,7 @@ class CleanUIApp:
             self.stats_disk_label.config(
                 text=f"💾 磁盘: {fmt_size(free)} 可用 / {fmt_size(total)} ({pct:.0f}% 已用)"
             )
-        except:
+        except OSError:
             self.stats_disk_label.config(text="💾 磁盘信息不可用")
 
     # ── Scan ──
@@ -1394,6 +1454,11 @@ class CleanUIApp:
             ))
 
 
+def _gui_environment_ready():
+    """在无 DISPLAY / WAYLAND_DISPLAY 时无法弹出 Tk 窗口（--version / --help 仍可用）。"""
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
 def main():
     import argparse
 
@@ -1408,7 +1473,18 @@ def main():
     )
     parser.parse_args()
 
-    app = CleanUIApp()
+    if not _gui_environment_ready():
+        print(
+            "CleanUI 需要图形桌面会话（请设置 DISPLAY 或 WAYLAND_DISPLAY）。",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    try:
+        app = CleanUIApp()
+    except tk.TclError as e:
+        print(f"无法初始化图形界面: {e}", file=sys.stderr)
+        sys.exit(1)
     app.root.mainloop()
 
 
