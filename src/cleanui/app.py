@@ -287,6 +287,28 @@ BTN_SCAN_HOVER = "#2ecc71"
 BTN_CLEAN = "#e74c3c"
 BTN_CLEAN_HOVER = "#ff7979"
 BTN_SECONDARY_HOVER = "#353550"
+# 复选框选中指示区：勿与背景同色，否则勾选状态看似「没渲染」
+CHECK_SELECT_BG = "#4e4e68"
+
+
+def _detect_icon_font(size=17):
+    """列表图标多为 Emoji：尽量用彩色 Emoji 字体，否则退回界面字体。"""
+    try:
+        sz = max(6, int(size) + _FONT_PT_EXTRA)
+    except (TypeError, ValueError):
+        sz = max(6, 17 + _FONT_PT_EXTRA)
+    exact, lower_to_exact = _font_family_index()
+    for name in (
+        "Noto Color Emoji",
+        "Noto Emoji",
+        "Segoe UI Emoji",
+        "Apple Color Emoji",
+        "JoyPixels",
+    ):
+        resolved = _resolve_family(name, exact, lower_to_exact)
+        if resolved and _tk_font_works(resolved, sz):
+            return (resolved, sz)
+    return _font(size)
 
 
 def _bind_btn_hover(btn, base_bg, hover_bg, active_bg=None):
@@ -303,6 +325,13 @@ def _bind_btn_hover(btn, base_bg, hover_bg, active_bg=None):
 
     btn.bind("<Enter>", on_enter)
     btn.bind("<Leave>", on_leave)
+
+
+def tk_safe_str(value):
+    """去掉 NUL 等易干扰 Tk 文本渲染的字符。"""
+    if value is None:
+        return ""
+    return str(value).replace("\x00", "\ufffd")
 
 
 def fmt_size(size_bytes):
@@ -885,6 +914,8 @@ class CleanUIApp:
 
         _apply_tk_named_fonts(CJK_FONT, CJK_MONO_FONT)
 
+        self._icon_label_font = _detect_icon_font(17)
+
         base_pt = 11 + _FONT_PT_EXTRA
         small_pt = 10 + _FONT_PT_EXTRA
 
@@ -941,8 +972,11 @@ class CleanUIApp:
         title_frame.pack(expand=True)
 
         tk.Label(
-            title_frame, text="🛡️", font=_font(26),
-            bg=BG_HEADER, fg=GREEN_SAFE
+            title_frame,
+            text="🛡️",
+            font=_detect_icon_font(26),
+            bg=BG_HEADER,
+            fg=GREEN_SAFE,
         ).pack(side=tk.LEFT, padx=(0, 10))
 
         title_col = tk.Frame(title_frame, bg=BG_HEADER)
@@ -1414,7 +1448,7 @@ class CleanUIApp:
             variable=var,
             bg=BG_CARD,
             fg=TEXT_PRIMARY,
-            selectcolor=BG_ROOT,
+            selectcolor=CHECK_SELECT_BG,
             activebackground=BG_CARD,
             activeforeground=TEXT_PRIMARY,
             command=self._update_clean_btn,
@@ -1424,26 +1458,11 @@ class CleanUIApp:
         cb.pack(side=tk.LEFT)
 
         tk.Label(
-            card_body, text=item.get("icon", "📄"), font=_font(17),
-            bg=BG_CARD
+            card_body,
+            text=tk_safe_str(item.get("icon", "📄")),
+            font=self._icon_label_font,
+            bg=BG_CARD,
         ).pack(side=tk.LEFT, padx=(4, 12))
-
-        info_frame = tk.Frame(card_body, bg=BG_CARD)
-        info_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
-
-        tk.Label(
-            info_frame, text=item["name"], font=_font(12, bold=True),
-            bg=BG_CARD, fg=TEXT_PRIMARY
-        ).pack(anchor=tk.W)
-
-        desc = item.get("description", "")
-        if desc:
-            tk.Label(
-                info_frame, text=desc, font=_font(10),
-                bg=BG_CARD, fg=TEXT_SECONDARY,
-                wraplength=getattr(self, "_item_desc_wrap", 400),
-                justify=tk.LEFT,
-            ).pack(anchor=tk.W)
 
         right_frame = tk.Frame(card_body, bg=BG_CARD)
         right_frame.pack(side=tk.RIGHT, padx=(8, 0))
@@ -1458,6 +1477,30 @@ class CleanUIApp:
             right_frame, text=level_labels.get(safe_level, ""),
             font=_font(9), bg=BG_CARD, fg=level_color
         ).pack(anchor=tk.E)
+
+        # 须先 pack 右侧栏再 pack 可伸展的 info，否则 expand 会先占满整行导致右侧体积被挤出
+        info_frame = tk.Frame(card_body, bg=BG_CARD)
+        info_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        tk.Label(
+            info_frame,
+            text=tk_safe_str(item.get("name", "")),
+            font=_font(12, bold=True),
+            bg=BG_CARD,
+            fg=TEXT_PRIMARY,
+        ).pack(anchor=tk.W)
+
+        desc = item.get("description", "")
+        if desc:
+            tk.Label(
+                info_frame,
+                text=tk_safe_str(desc),
+                font=_font(10),
+                bg=BG_CARD,
+                fg=TEXT_SECONDARY,
+                wraplength=getattr(self, "_item_desc_wrap", 400),
+                justify=tk.LEFT,
+            ).pack(anchor=tk.W)
 
     # ── Actions ──
 
