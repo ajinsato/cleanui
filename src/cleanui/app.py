@@ -259,29 +259,49 @@ def _apply_tk_named_fonts(ui_family, mono_family):
 
 # ── Constants ──────────────────────────────────────────────
 
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 HOME = Path.home()
 TMP = Path("/tmp")
 VAR_TMP = Path("/var/tmp")
 
-# Color scheme (360-inspired)
-BG_DARK = "#1e1e2e"
-BG_MID = "#2a2a3d"
-BG_CARD = "#313148"
-BG_HEADER = "#1a1a2e"
-GREEN_SAFE = "#27ae60"
-GREEN_LIGHT = "#2ecc71"
-YELLOW_CAUTION = "#f39c12"
-RED_DANGER = "#e74c3c"
-TEXT_PRIMARY = "#e0e0e0"
-TEXT_SECONDARY = "#a0a0b8"
-TEXT_MUTED = "#686880"
-ACCENT_BLUE = "#3498db"
-PROGRESS_BG = "#3d3d5c"
+# Color scheme — 深色层级 + 轻微强调色
+BG_ROOT = "#12121a"
+BG_DARK = "#16161f"
+BG_MID = "#242436"
+BG_CARD = "#2a2a3e"
+BG_HEADER = "#101018"
+BORDER_SUBTLE = "#3d3d54"
+ACCENT_BAR = "#3498db"
+GREEN_SAFE = "#2ecc71"
+GREEN_LIGHT = "#58d68d"
+YELLOW_CAUTION = "#f4d03f"
+RED_DANGER = "#ec7063"
+TEXT_PRIMARY = "#ececf3"
+TEXT_SECONDARY = "#a8a8c0"
+TEXT_MUTED = "#6b6b82"
+ACCENT_BLUE = "#5dade2"
+PROGRESS_BG = "#32324a"
 BTN_SCAN = "#27ae60"
 BTN_SCAN_HOVER = "#2ecc71"
 BTN_CLEAN = "#e74c3c"
-BTN_CLEAN_HOVER = "#ff6b6b"
+BTN_CLEAN_HOVER = "#ff7979"
+BTN_SECONDARY_HOVER = "#353550"
+
+
+def _bind_btn_hover(btn, base_bg, hover_bg, active_bg=None):
+    """主/次按钮悬停时背景微变（禁用时不变）。"""
+    ab = active_bg or hover_bg
+
+    def on_enter(_):
+        if btn["state"] == tk.NORMAL:
+            btn.config(bg=hover_bg, activebackground=ab)
+
+    def on_leave(_):
+        if btn["state"] == tk.NORMAL:
+            btn.config(bg=base_bg, activebackground=ab)
+
+    btn.bind("<Enter>", on_enter)
+    btn.bind("<Leave>", on_leave)
 
 
 def fmt_size(size_bytes):
@@ -843,9 +863,9 @@ class CleanUIApp:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("CleanUI - 系统清理")
-        self.root.geometry("800x700")
-        self.root.minsize(600, 500)
-        self.root.configure(bg=BG_DARK)
+        self.root.geometry("900x720")
+        self.root.minsize(640, 520)
+        self.root.configure(bg=BG_ROOT)
 
         # Initialize CJK font after Tk root is created (needs Display for font.families)
         global CJK_FONT, CJK_MONO_FONT
@@ -909,7 +929,10 @@ class CleanUIApp:
 
     def _build_ui(self):
         # ── Header ──
-        header = tk.Frame(self.root, bg=BG_HEADER, height=80)
+        header_wrap = tk.Frame(self.root, bg=BG_HEADER)
+        header_wrap.pack(fill=tk.X)
+
+        header = tk.Frame(header_wrap, bg=BG_HEADER, height=86)
         header.pack(fill=tk.X)
         header.pack_propagate(False)
 
@@ -917,81 +940,92 @@ class CleanUIApp:
         title_frame.pack(expand=True)
 
         tk.Label(
-            title_frame, text="🛡️", font=_font(24),
+            title_frame, text="🛡️", font=_font(26),
             bg=BG_HEADER, fg=GREEN_SAFE
-        ).pack(side=tk.LEFT, padx=(0, 12))
+        ).pack(side=tk.LEFT, padx=(0, 10))
 
+        title_col = tk.Frame(title_frame, bg=BG_HEADER)
+        title_col.pack(side=tk.LEFT)
         tk.Label(
-            title_frame, text="CleanUI 系统清理",
-            font=_font(18, bold=True), bg=BG_HEADER, fg=TEXT_PRIMARY
-        ).pack(side=tk.LEFT)
-
+            title_col, text="CleanUI 系统清理",
+            font=_font(19, bold=True), bg=BG_HEADER, fg=TEXT_PRIMARY
+        ).pack(anchor=tk.W)
         tk.Label(
-            title_frame, text=f"v{VERSION}",
+            title_col, text=f"版本 {VERSION}",
             font=_font(9), bg=BG_HEADER, fg=TEXT_MUTED
-        ).pack(side=tk.LEFT, padx=(8, 0), pady=(12, 0))
+        ).pack(anchor=tk.W)
+
+        accent = tk.Frame(header_wrap, bg=ACCENT_BAR, height=3)
+        accent.pack(fill=tk.X)
 
         # Subtitle
         tk.Label(
-            self.root, text="一键扫描，安全清理，释放磁盘空间",
-            font=_font(12), bg=BG_DARK, fg=TEXT_SECONDARY
-        ).pack(pady=(8, 0))
+            self.root, text="一键扫描 · 安全清理 · 释放磁盘空间",
+            font=_font(11), bg=BG_ROOT, fg=TEXT_SECONDARY
+        ).pack(pady=(12, 0))
 
         # ── Stats Bar ──
-        self.stats_frame = tk.Frame(self.root, bg=BG_MID, height=50)
-        self.stats_frame.pack(fill=tk.X, padx=30, pady=(10, 0))
-        self.stats_frame.pack_propagate(False)
+        self.stats_frame = tk.Frame(
+            self.root,
+            bg=BG_MID,
+            highlightbackground=BORDER_SUBTLE,
+            highlightthickness=1,
+        )
+        self.stats_frame.pack(fill=tk.X, padx=28, pady=(14, 0), ipady=8)
 
         self.stats_disk_label = tk.Label(
             self.stats_frame, text="", font=_font(11),
             bg=BG_MID, fg=TEXT_SECONDARY
         )
-        self.stats_disk_label.pack(side=tk.LEFT, padx=15)
+        self.stats_disk_label.pack(side=tk.LEFT, padx=(16, 8))
 
         self.stats_found_label = tk.Label(
             self.stats_frame, text="", font=_font(11),
-            bg=BG_MID, fg=TEXT_SECONDARY
+            bg=BG_MID, fg=ACCENT_BLUE
         )
-        self.stats_found_label.pack(side=tk.RIGHT, padx=15)
+        self.stats_found_label.pack(side=tk.RIGHT, padx=(8, 16))
         self.stats_found_label.config(text="可清理: —")
 
         self._update_disk_info()
 
         # ── Control Buttons ──
-        btn_frame = tk.Frame(self.root, bg=BG_DARK)
-        btn_frame.pack(pady=(15, 10))
+        btn_frame = tk.Frame(self.root, bg=BG_ROOT)
+        btn_frame.pack(pady=(18, 12))
 
         self.scan_btn = tk.Button(
             btn_frame, text="🔍  开始扫描", font=_font(12, bold=True),
             bg=BTN_SCAN, fg="white", activebackground=BTN_SCAN_HOVER,
-            activeforeground="white", relief=tk.FLAT, padx=30, pady=10,
+            activeforeground="white", relief=tk.FLAT, padx=28, pady=11,
             cursor="hand2", bd=0, command=self._start_scan
         )
-        self.scan_btn.pack(side=tk.LEFT, padx=5)
+        self.scan_btn.pack(side=tk.LEFT, padx=6)
+        _bind_btn_hover(self.scan_btn, BTN_SCAN, BTN_SCAN_HOVER, BTN_SCAN_HOVER)
 
         self.select_all_btn = tk.Button(
             btn_frame, text="全选", font=_font(11),
-            bg=BG_MID, fg=TEXT_PRIMARY, activebackground=BG_CARD,
-            activeforeground="white", relief=tk.FLAT, padx=15, pady=8,
+            bg=BG_MID, fg=TEXT_PRIMARY, activebackground=BTN_SECONDARY_HOVER,
+            activeforeground=TEXT_PRIMARY, relief=tk.FLAT, padx=18, pady=9,
             cursor="hand2", bd=0, state=tk.DISABLED, command=self._select_all
         )
-        self.select_all_btn.pack(side=tk.LEFT, padx=5)
+        self.select_all_btn.pack(side=tk.LEFT, padx=4)
+        _bind_btn_hover(self.select_all_btn, BG_MID, BTN_SECONDARY_HOVER, BTN_SECONDARY_HOVER)
 
         self.deselect_all_btn = tk.Button(
             btn_frame, text="取消全选", font=_font(11),
-            bg=BG_MID, fg=TEXT_PRIMARY, activebackground=BG_CARD,
-            activeforeground="white", relief=tk.FLAT, padx=15, pady=8,
+            bg=BG_MID, fg=TEXT_PRIMARY, activebackground=BTN_SECONDARY_HOVER,
+            activeforeground=TEXT_PRIMARY, relief=tk.FLAT, padx=18, pady=9,
             cursor="hand2", bd=0, state=tk.DISABLED, command=self._deselect_all
         )
-        self.deselect_all_btn.pack(side=tk.LEFT, padx=5)
+        self.deselect_all_btn.pack(side=tk.LEFT, padx=4)
+        _bind_btn_hover(self.deselect_all_btn, BG_MID, BTN_SECONDARY_HOVER, BTN_SECONDARY_HOVER)
 
         self.clean_btn = tk.Button(
             btn_frame, text="🧹  立即清理", font=_font(12, bold=True),
             bg=BG_MID, fg=TEXT_MUTED, activebackground=BG_MID,
-            activeforeground=TEXT_MUTED, relief=tk.FLAT, padx=30, pady=10,
+            activeforeground=TEXT_MUTED, relief=tk.FLAT, padx=28, pady=11,
             cursor="hand2", bd=0, state=tk.DISABLED, command=self._start_clean
         )
-        self.clean_btn.pack(side=tk.LEFT, padx=5)
+        self.clean_btn.pack(side=tk.LEFT, padx=6)
 
         # ── Progress Bar ──
         self.progress_var = tk.DoubleVar(value=0)
@@ -1003,16 +1037,16 @@ class CleanUIApp:
 
         self.progress_label = tk.Label(
             self.root, text="", font=_font(11),
-            bg=BG_DARK, fg=TEXT_SECONDARY
+            bg=BG_ROOT, fg=TEXT_SECONDARY
         )
 
         # ── Results Area ──
         results_header = tk.Frame(self.root, bg=BG_DARK)
-        results_header.pack(fill=tk.X, padx=30, pady=(15, 0))
+        results_header.pack(fill=tk.X, padx=28, pady=(18, 0))
 
         tk.Label(
-            results_header, text="扫描结果", font=_font(12, bold=True),
-            bg=BG_DARK, fg=TEXT_PRIMARY
+            results_header, text="扫描结果",
+            font=_font(13, bold=True), bg=BG_DARK, fg=TEXT_PRIMARY
         ).pack(side=tk.LEFT)
 
         self.result_count_label = tk.Label(
@@ -1023,7 +1057,7 @@ class CleanUIApp:
 
         # Canvas + scrollbar for results
         self.canvas_frame = tk.Frame(self.root, bg=BG_DARK)
-        self.canvas_frame.pack(fill=tk.BOTH, expand=True, padx=30, pady=(5, 10))
+        self.canvas_frame.pack(fill=tk.BOTH, expand=True, padx=28, pady=(8, 12))
 
         self.canvas = tk.Canvas(
             self.canvas_frame, bg=BG_DARK, bd=0,
@@ -1032,7 +1066,15 @@ class CleanUIApp:
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         self.scrollbar = tk.Scrollbar(
-            self.canvas_frame, orient=tk.VERTICAL, command=self.canvas.yview
+            self.canvas_frame,
+            orient=tk.VERTICAL,
+            command=self.canvas.yview,
+            bg=BG_MID,
+            troughcolor=BG_DARK,
+            activebackground=BG_CARD,
+            bd=0,
+            highlightthickness=0,
+            width=12,
         )
         self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
@@ -1053,29 +1095,36 @@ class CleanUIApp:
         self.placeholder_label = tk.Label(
             self.results_inner,
             text="点击「开始扫描」检测系统中的垃圾文件",
-            font=_font(12), bg=BG_DARK, fg=TEXT_MUTED, pady=60
+            font=_font(12), bg=BG_DARK, fg=TEXT_MUTED, pady=48
         )
         self.placeholder_label.pack()
 
         # ── Log area (hidden by default) ──
-        self.log_frame = tk.Frame(self.root, bg=BG_HEADER)
+        self.log_frame = tk.Frame(self.root, bg=BORDER_SUBTLE, padx=1, pady=(0, 1))
+        self.log_inner = tk.Frame(self.log_frame, bg=BG_HEADER)
+        self.log_inner.pack(fill=tk.BOTH, expand=True)
         self.log_text = tk.Text(
-            self.log_frame, height=6, bg="#0d0d1a", fg=TEXT_SECONDARY,
-            font=_font(10, mono=True), bd=0, padx=10, pady=8,
-            insertbackground=TEXT_PRIMARY, state=tk.DISABLED
+            self.log_inner, height=6, bg="#0b0b14", fg=TEXT_SECONDARY,
+            font=_font(10, mono=True), bd=0, padx=12, pady=10,
+            insertbackground=TEXT_PRIMARY, state=tk.DISABLED,
+            selectbackground=BG_CARD,
         )
         self.log_scrollbar = tk.Scrollbar(
-            self.log_frame, orient=tk.VERTICAL, command=self.log_text.yview
+            self.log_inner, orient=tk.VERTICAL, command=self.log_text.yview,
+            bg=BG_MID, troughcolor="#0b0b14", activebackground=BG_CARD,
+            bd=0, highlightthickness=0, width=11,
         )
         self.log_text.configure(yscrollcommand=self.log_scrollbar.set)
 
         # ── Status Bar ──
         self.status_var = tk.StringVar(value="就绪")
-        status_bar = tk.Label(
-            self.root, textvariable=self.status_var, font=_font(10),
-            bg=BG_HEADER, fg=TEXT_MUTED, anchor=tk.W, padx=15, pady=4
-        )
-        status_bar.pack(fill=tk.X, side=tk.BOTTOM)
+        self._bottom_frame = tk.Frame(self.root, bg=BG_HEADER)
+        tk.Frame(self._bottom_frame, height=1, bg=BORDER_SUBTLE).pack(fill=tk.X)
+        tk.Label(
+            self._bottom_frame, textvariable=self.status_var, font=_font(10),
+            bg=BG_HEADER, fg=TEXT_MUTED, anchor=tk.W, padx=18, pady=8,
+        ).pack(fill=tk.X)
+        self._bottom_frame.pack(side=tk.BOTTOM, fill=tk.X)
 
         # Configure ttk styles
         self._setup_styles()
@@ -1087,9 +1136,10 @@ class CleanUIApp:
             "green.Horizontal.TProgressbar",
             troughcolor=PROGRESS_BG,
             background=GREEN_SAFE,
-            bordercolor=BG_DARK,
+            bordercolor=BG_ROOT,
             lightcolor=GREEN_SAFE,
             darkcolor=GREEN_SAFE,
+            thickness=10,
         )
 
     def _bind_mousewheel(self):
@@ -1103,10 +1153,11 @@ class CleanUIApp:
         self.canvas.unbind_all("<MouseWheel>")
 
     def _on_mousewheel(self, event):
+        n = 3
         if event.num == 4 or event.delta > 0:
-            self.canvas.yview_scroll(-1, "units")
+            self.canvas.yview_scroll(-n, "units")
         elif event.num == 5 or event.delta < 0:
-            self.canvas.yview_scroll(1, "units")
+            self.canvas.yview_scroll(n, "units")
 
     def _on_inner_configure(self, event):
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
@@ -1147,7 +1198,7 @@ class CleanUIApp:
         self.result_count_label.config(text="")
 
         # Show progress
-        self.progress_bar.pack(fill=tk.X, padx=30, pady=(5, 0))
+        self.progress_bar.pack(fill=tk.X, padx=28, pady=(5, 0))
         self.progress_label.pack(pady=(2, 0))
         self.progress_var.set(0)
         self.progress_label.config(text="正在初始化扫描...")
@@ -1181,7 +1232,12 @@ class CleanUIApp:
         self.progress_bar.pack_forget()
         self.progress_label.pack_forget()
 
-        self.scan_btn.config(text="🔍  重新扫描", bg=BTN_SCAN, state=tk.NORMAL)
+        self.scan_btn.config(
+            text="🔍  重新扫描",
+            bg=BTN_SCAN,
+            state=tk.NORMAL,
+            activebackground=BTN_SCAN_HOVER,
+        )
 
         if not self.scan_results:
             self.placeholder_label = tk.Label(
@@ -1219,28 +1275,38 @@ class CleanUIApp:
         # Summary card
         total_size = sum(item["size"] for item in self.scan_results)
         summary = tk.Frame(
-            self.results_inner, bg=BG_CARD, padx=15, pady=12,
-            highlightthickness=0
+            self.results_inner,
+            bg=BG_CARD,
+            padx=16,
+            pady=14,
+            highlightthickness=1,
+            highlightbackground=BORDER_SUBTLE,
         )
-        summary.pack(fill=tk.X, pady=(0, 10))
+        summary.pack(fill=tk.X, pady=(0, 12))
 
         tk.Label(
-            summary, text=f"📊 共发现 {len(self.scan_results)} 项可清理内容",
-            font=_font(12, bold=True), bg=BG_CARD, fg=TEXT_PRIMARY
+            summary, text=f"共发现 {len(self.scan_results)} 项可清理",
+            font=_font(13, bold=True), bg=BG_CARD, fg=TEXT_PRIMARY
         ).pack(anchor=tk.W)
 
         tk.Label(
-            summary, text=f"预计可释放空间: {fmt_size(total_size)}",
+            summary, text=f"预计可释放约 {fmt_size(total_size)}",
             font=_font(11), bg=BG_CARD, fg=GREEN_LIGHT
-        ).pack(anchor=tk.W, pady=(4, 0))
+        ).pack(anchor=tk.W, pady=(6, 0))
 
-        # Legend
+        # Legend（胶囊标签）
         legend = tk.Frame(self.results_inner, bg=BG_DARK)
-        legend.pack(fill=tk.X, pady=(0, 8))
-        for text, color in [("● 安全清理", GREEN_SAFE), ("● 建议清理", YELLOW_CAUTION), ("● 需确认", RED_DANGER)]:
-            f = tk.Frame(legend, bg=BG_DARK)
-            f.pack(side=tk.LEFT, padx=(0, 15))
-            tk.Label(f, text=text, font=_font(10), bg=BG_DARK, fg=color).pack()
+        legend.pack(fill=tk.X, pady=(0, 10))
+        for text, color in [
+            ("●  安全", GREEN_SAFE),
+            ("●  建议", YELLOW_CAUTION),
+            ("●  注意", RED_DANGER),
+        ]:
+            pill = tk.Frame(legend, bg=BG_MID, highlightthickness=0)
+            pill.pack(side=tk.LEFT, padx=(0, 10))
+            tk.Label(
+                pill, text=text, font=_font(10), bg=BG_MID, fg=color
+            ).pack(padx=12, pady=6)
 
         # Category items
         for item in self.scan_results:
@@ -1262,29 +1328,42 @@ class CleanUIApp:
         }
         level_color = color_map.get(safe_level, TEXT_SECONDARY)
 
-        card = tk.Frame(
-            self.results_inner, bg=BG_CARD, padx=14, pady=10,
-            highlightthickness=0
-        )
-        card.pack(fill=tk.X, pady=3)
+        row = tk.Frame(self.results_inner, bg=BG_DARK)
+        row.pack(fill=tk.X, pady=5)
 
-        # Checkbox
+        stripe = tk.Frame(row, bg=level_color, width=4)
+        stripe.pack(side=tk.LEFT, fill=tk.Y)
+        stripe.pack_propagate(False)
+
+        card = tk.Frame(
+            row,
+            bg=BG_CARD,
+            padx=(12, 14),
+            pady=12,
+            highlightthickness=1,
+            highlightbackground=BORDER_SUBTLE,
+        )
+        card.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
         cb = tk.Checkbutton(
-            card, variable=var,
-            bg=BG_CARD, fg=TEXT_PRIMARY,
-            selectcolor=BG_MID, activebackground=BG_CARD,
+            card,
+            variable=var,
+            bg=BG_CARD,
+            fg=TEXT_PRIMARY,
+            selectcolor=BG_ROOT,
+            activebackground=BG_CARD,
             activeforeground=TEXT_PRIMARY,
-            command=self._update_clean_btn
+            command=self._update_clean_btn,
+            bd=0,
+            highlightthickness=0,
         )
         cb.pack(side=tk.LEFT)
 
-        # Icon
         tk.Label(
-            card, text=item.get("icon", "📄"), font=_font(16),
+            card, text=item.get("icon", "📄"), font=_font(17),
             bg=BG_CARD
-        ).pack(side=tk.LEFT, padx=(8, 12))
+        ).pack(side=tk.LEFT, padx=(4, 12))
 
-        # Info
         info_frame = tk.Frame(card, bg=BG_CARD)
         info_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
@@ -1297,16 +1376,17 @@ class CleanUIApp:
         if desc:
             tk.Label(
                 info_frame, text=desc, font=_font(10),
-                bg=BG_CARD, fg=TEXT_SECONDARY
+                bg=BG_CARD, fg=TEXT_SECONDARY,
+                wraplength=500,
+                justify=tk.LEFT,
             ).pack(anchor=tk.W)
 
-        # Size and label
         right_frame = tk.Frame(card, bg=BG_CARD)
-        right_frame.pack(side=tk.RIGHT)
+        right_frame.pack(side=tk.RIGHT, padx=(8, 0))
 
         tk.Label(
             right_frame, text=fmt_size(item["size"]),
-            font=_font(12, bold=True), bg=BG_CARD, fg=level_color
+            font=_font(13, bold=True), bg=BG_CARD, fg=level_color
         ).pack(anchor=tk.E)
 
         level_labels = {"safe": "安全", "caution": "建议", "danger": "注意"}
@@ -1316,6 +1396,24 @@ class CleanUIApp:
         ).pack(anchor=tk.E)
 
     # ── Actions ──
+
+    def _sync_clean_btn_hover(self):
+        for ev in ("<Enter>", "<Leave>"):
+            self.clean_btn.unbind(ev)
+        if self.clean_btn["state"] != tk.NORMAL:
+            return
+        try:
+            bg = self.clean_btn.cget("bg")
+        except tk.TclError:
+            return
+        if bg == BTN_CLEAN:
+            _bind_btn_hover(
+                self.clean_btn, BTN_CLEAN, BTN_CLEAN_HOVER, BTN_CLEAN_HOVER
+            )
+        elif bg == GREEN_SAFE:
+            _bind_btn_hover(
+                self.clean_btn, GREEN_SAFE, GREEN_LIGHT, GREEN_LIGHT
+            )
 
     def _select_all(self):
         for var in self.check_vars.values():
@@ -1348,14 +1446,22 @@ class CleanUIApp:
             )
             self.clean_btn.config(
                 text=f"🧹  清理选中 ({fmt_size(selected_size)})",
-                state=tk.NORMAL, bg=BTN_CLEAN, fg="white",
-                activebackground=BTN_CLEAN_HOVER
+                state=tk.NORMAL,
+                bg=BTN_CLEAN,
+                fg="white",
+                activebackground=BTN_CLEAN_HOVER,
+                activeforeground="white",
             )
         else:
             self.clean_btn.config(
-                text="🧹  立即清理", state=tk.DISABLED,
-                bg=BG_MID, fg=TEXT_MUTED
+                text="🧹  立即清理",
+                state=tk.DISABLED,
+                bg=BG_MID,
+                fg=TEXT_MUTED,
+                activebackground=BG_MID,
+                activeforeground=TEXT_MUTED,
             )
+        self._sync_clean_btn_hover()
 
     # ── Clean ──
 
@@ -1390,7 +1496,7 @@ class CleanUIApp:
         self.status_var.set("正在清理...")
 
         # Show log
-        self.log_frame.pack(fill=tk.X, padx=30, pady=(5, 5))
+        self.log_frame.pack(fill=tk.X, padx=28, pady=(6, 8))
         self.log_text.config(state=tk.NORMAL)
         self.log_text.delete("1.0", tk.END)
         self.log_text.insert(tk.END, f"[{datetime.now().strftime('%H:%M:%S')}] 开始清理 {len(selected)} 项...\n")
@@ -1439,9 +1545,15 @@ class CleanUIApp:
 
         if self.clean_failed == 0:
             self.clean_btn.config(
-                text="✅ 清理完成", state=tk.DISABLED,
-                bg=GREEN_SAFE, fg="white"
+                text="✅ 清理完成",
+                state=tk.DISABLED,
+                bg=GREEN_SAFE,
+                fg="white",
+                activebackground=GREEN_SAFE,
             )
+            self._sync_clean_btn_hover()
+        else:
+            self._update_clean_btn()
 
         self._update_disk_info()
 
