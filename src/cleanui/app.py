@@ -1101,9 +1101,9 @@ class CleanUIApp:
         self.placeholder_label.pack()
 
         # ── Log area (hidden by default) ──
-        self.log_frame = tk.Frame(self.root, bg=BORDER_SUBTLE, padx=1, pady=(0, 1))
+        self.log_frame = tk.Frame(self.root, bg=BORDER_SUBTLE)
         self.log_inner = tk.Frame(self.log_frame, bg=BG_HEADER)
-        self.log_inner.pack(fill=tk.BOTH, expand=True)
+        self.log_inner.pack(fill=tk.BOTH, expand=True, padx=1, pady=(0, 1))
         self.log_text = tk.Text(
             self.log_inner, height=6, bg="#0b0b14", fg=TEXT_SECONDARY,
             font=_font(10, mono=True), bd=0, padx=12, pady=10,
