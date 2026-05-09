@@ -35,20 +35,27 @@ chmod +x install.sh    # 仅需首次
 ./install.sh
 ```
 
-脚本会：`pip install --user -e .`、在 **`~/.profile`** 中按需追加 **`python -m site --user-base`/bin** 到 `PATH`，并在 **`~/.local/share/applications/`** 写入 **CleanUI** 桌面菜单项（可选跳过）。
+脚本会：
+
+1. **依赖检查（默认开启）**：确认 Python **3.9+**、**pip**、**tkinter** 可用；若缺失且检测到 **`apt-get` / `dnf` / `yum` / `pacman`**，会提示并用 **sudo** 安装对应包（如 Debian/Ubuntu：`python3`、`python3-pip`、`python3-tk`、`fontconfig`）。
+2. **`pip install --user -e .`**（默认用户级可编辑安装）。
+3. 在 **`~/.profile`** 中按需追加 **`python -m site --user-base`/bin** 到 `PATH`。
+4. 在 **`~/.local/share/applications/`** 写入 **CleanUI** 桌面菜单项（可用参数跳过）。
 
 常用参数：
 
 | 参数 | 含义 |
 |------|------|
-| `--install-deps` | 检测到 `apt-get` 时用 **sudo** 安装 `python3-pip`、`python3-tk`、`fontconfig` |
-| `-y` / `--yes` | 非交互（如对 apt 确认一律视为同意） |
+| （默认） | 自动检测并尝试安装系统依赖（需 sudo，首次会询问） |
+| `-y` / `--yes` | 非交互，自动同意 sudo 安装依赖等 |
+| `--no-install-deps` | **不**安装系统包；环境缺 Tk/pip 时会失败并提示 |
+| `--install-deps` | 显式开启依赖安装（与默认相同） |
 | `--system` | **sudo** 系统级 pip 安装（多用户；部分发行版需 PEP 668，脚本会再试 `--break-system-packages`） |
 | `--no-desktop` | 不安装 `.desktop` |
 | `--no-path` | 不修改 `~/.profile` |
 | `--git-hooks` | 设置 `core.hooksPath=.githooks`，提交前自动递增 **VERSION** |
 
-示例：`./install.sh --install-deps -y`
+示例：`./install.sh -y`（无人值守）、`./install.sh --no-install-deps`（依赖已自备）
 
 ### 方式 A：当前用户安装（推荐日常桌面使用）
 
