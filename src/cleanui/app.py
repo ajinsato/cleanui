@@ -1161,7 +1161,9 @@ class CleanUIApp:
             self.canvas.yview_scroll(n, "units")
 
     def _on_inner_configure(self, event):
-        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        bbox = self.canvas.bbox("all")
+        if bbox:
+            self.canvas.configure(scrollregion=bbox)
 
     def _on_canvas_configure(self, event):
         self.canvas.itemconfig(self.canvas_window, width=event.width)
@@ -1273,25 +1275,25 @@ class CleanUIApp:
         for widget in self.results_inner.winfo_children():
             widget.destroy()
 
-        # Summary card
+        # Summary card（Frame 不允许构造参数 padx/pady，须用内层 + pack）
         total_size = sum(item["size"] for item in self.scan_results)
         summary = tk.Frame(
             self.results_inner,
             bg=BG_CARD,
-            padx=16,
-            pady=14,
             highlightthickness=1,
             highlightbackground=BORDER_SUBTLE,
         )
         summary.pack(fill=tk.X, pady=(0, 12))
+        summary_body = tk.Frame(summary, bg=BG_CARD)
+        summary_body.pack(fill=tk.X, padx=16, pady=14)
 
         tk.Label(
-            summary, text=f"共发现 {len(self.scan_results)} 项可清理",
+            summary_body, text=f"共发现 {len(self.scan_results)} 项可清理",
             font=_font(13, bold=True), bg=BG_CARD, fg=TEXT_PRIMARY
         ).pack(anchor=tk.W)
 
         tk.Label(
-            summary, text=f"预计可释放约 {fmt_size(total_size)}",
+            summary_body, text=f"预计可释放约 {fmt_size(total_size)}",
             font=_font(11), bg=BG_CARD, fg=GREEN_LIGHT
         ).pack(anchor=tk.W, pady=(6, 0))
 
@@ -1313,8 +1315,11 @@ class CleanUIApp:
         for item in self.scan_results:
             self._render_item(item)
 
-        # Select all checkbox at top of results
         self.canvas.yview_moveto(0)
+        self.results_inner.update_idletasks()
+        bbox = self.canvas.bbox("all")
+        if bbox:
+            self.canvas.configure(scrollregion=bbox)
 
     def _render_item(self, item):
         item_id = item["id"]
@@ -1339,15 +1344,15 @@ class CleanUIApp:
         card = tk.Frame(
             row,
             bg=BG_CARD,
-            padx=(12, 14),
-            pady=12,
             highlightthickness=1,
             highlightbackground=BORDER_SUBTLE,
         )
         card.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        card_body = tk.Frame(card, bg=BG_CARD)
+        card_body.pack(fill=tk.BOTH, expand=True, padx=(12, 14), pady=12)
 
         cb = tk.Checkbutton(
-            card,
+            card_body,
             variable=var,
             bg=BG_CARD,
             fg=TEXT_PRIMARY,
@@ -1361,11 +1366,11 @@ class CleanUIApp:
         cb.pack(side=tk.LEFT)
 
         tk.Label(
-            card, text=item.get("icon", "📄"), font=_font(17),
+            card_body, text=item.get("icon", "📄"), font=_font(17),
             bg=BG_CARD
         ).pack(side=tk.LEFT, padx=(4, 12))
 
-        info_frame = tk.Frame(card, bg=BG_CARD)
+        info_frame = tk.Frame(card_body, bg=BG_CARD)
         info_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         tk.Label(
@@ -1378,11 +1383,11 @@ class CleanUIApp:
             tk.Label(
                 info_frame, text=desc, font=_font(10),
                 bg=BG_CARD, fg=TEXT_SECONDARY,
-                wraplength=500,
+                wraplength=520,
                 justify=tk.LEFT,
             ).pack(anchor=tk.W)
 
-        right_frame = tk.Frame(card, bg=BG_CARD)
+        right_frame = tk.Frame(card_body, bg=BG_CARD)
         right_frame.pack(side=tk.RIGHT, padx=(8, 0))
 
         tk.Label(
