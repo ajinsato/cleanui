@@ -442,6 +442,59 @@ def run_cmd(cmd, timeout=30):
 
 # ── Scanner ─────────────────────────────────────────────────
 
+
+def normalize_scan_results(items):
+    """
+    合并多线程扫描结果并补齐字段；丢弃非法项。
+    避免因并发写同一 list 或异常数据导致界面 KeyError。
+    """
+    out = []
+    if not items:
+        return out
+    for raw in items:
+        if not isinstance(raw, dict):
+            continue
+        try:
+            sz = raw.get("size", 0)
+            sz = int(sz) if sz is not None else 0
+        except (TypeError, ValueError):
+            sz = 0
+        try:
+            cnt = raw.get("count", 0)
+            cnt = int(cnt) if cnt is not None else 0
+        except (TypeError, ValueError):
+            cnt = 0
+        rid = raw.get("id")
+        name = raw.get("name")
+        if not rid and not name:
+            continue
+        item = {
+            "id": str(rid or name),
+            "name": str(name or rid or "未命名"),
+            "description": str(raw.get("description") or ""),
+            "size": max(0, sz),
+            "count": max(0, cnt),
+            "safe_level": raw.get("safe_level") or "caution",
+            "icon": raw.get("icon") or "[项]",
+            "clean_type": raw.get("clean_type") or "",
+        }
+        for k in ("clean_cmd", "clean_path", "clean_exclude", "clean_desc"):
+            if k in raw and raw[k] is not None:
+                item[k] = raw[k]
+        out.append(item)
+    return out
+
+
+def scan_item_size(item):
+    """安全读取扫描项体积（字节），防止异常 dict 导致崩溃。"""
+    if not isinstance(item, dict):
+        return 0
+    try:
+        return max(0, int(item.get("size", 0) or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
 class Scanner:
     """Scans system for junk files and returns categorized results."""
 
@@ -472,18 +525,22 @@ class Scanner:
 
         max_workers = min(6, total)
         done = 0
+        merged = []
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             future_to_name = {pool.submit(fn): name for name, fn in scanners}
             for fut in as_completed(future_to_name):
                 name = future_to_name[fut]
                 try:
-                    self.results.extend(fut.result() or [])
+                    chunk = fut.result()
+                    if isinstance(chunk, list):
+                        merged.extend(chunk)
                 except Exception:
                     pass
                 done += 1
                 pct = int(done / total * 100)
                 self.progress(pct, f"扫描进度 {done}/{total}（{name}）")
 
+        self.results = normalize_scan_results(merged)
         self.progress(100, "扫描完成")
         return self.results
 
@@ -1328,7 +1385,7 @@ class CleanUIApp:
             self._update_disk_info()
             return
 
-        total_size = sum(item["size"] for item in self.scan_results)
+        total_size = sum(scan_item_size(item) for item in self.scan_results)
         self.stats_found_label.config(
             text=f"可清理: {len(self.scan_results)} 项  {fmt_size(total_size)}"
         )
@@ -1349,7 +1406,7 @@ class CleanUIApp:
             widget.destroy()
 
         # Summary card（Frame 不允许构造参数 padx/pady，须用内层 + pack）
-        total_size = sum(item["size"] for item in self.scan_results)
+        total_size = sum(scan_item_size(item) for item in self.scan_results)
         summary = tk.Frame(
             self.results_inner,
             bg=BG_CARD,
@@ -1453,7 +1510,7 @@ class CleanUIApp:
         right_frame.pack(side=tk.RIGHT, padx=(8, 0))
 
         tk.Label(
-            right_frame, text=fmt_size(item["size"]),
+            right_frame, text=fmt_size(scan_item_size(item)),
             font=_font(13, bold=True), bg=BG_CARD, fg=level_color
         ).pack(anchor=tk.E)
 
@@ -1533,7 +1590,7 @@ class CleanUIApp:
 
         if any_checked:
             selected_size = sum(
-                item["size"]
+                scan_item_size(item)
                 for item in self.scan_results
                 if (cv := self.check_vars.get(item["id"])) is not None and cv.get()
             )
@@ -1572,7 +1629,7 @@ class CleanUIApp:
             return
 
         # Show confirmation
-        total = sum(item["size"] for item in selected)
+        total = sum(scan_item_size(item) for item in selected)
         has_danger = any(item["safe_level"] == "danger" for item in selected)
 
         msg = f"确认清理 {len(selected)} 项，释放 {fmt_size(total)} 空间？"
