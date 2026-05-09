@@ -26,6 +26,29 @@ sudo apt install python3 python3-pip python3-tk
 
 在存放源码的目录执行以下任一方式。
 
+### 一键脚本（推荐）
+
+克隆仓库后，在**仓库根目录**（含 `pyproject.toml`）执行：
+
+```bash
+chmod +x install.sh    # 仅需首次
+./install.sh
+```
+
+脚本会：`pip install --user -e .`、在 **`~/.profile`** 中按需追加 **`python -m site --user-base`/bin** 到 `PATH`，并在 **`~/.local/share/applications/`** 写入 **CleanUI** 桌面菜单项（可选跳过）。
+
+常用参数：
+
+| 参数 | 含义 |
+|------|------|
+| `--install-deps` | 检测到 `apt-get` 时用 **sudo** 安装 `python3-pip`、`python3-tk`、`fontconfig` |
+| `-y` / `--yes` | 非交互（如对 apt 确认一律视为同意） |
+| `--system` | **sudo** 系统级 pip 安装（多用户；部分发行版需 PEP 668，脚本会再试 `--break-system-packages`） |
+| `--no-desktop` | 不安装 `.desktop` |
+| `--no-path` | 不修改 `~/.profile` |
+
+示例：`./install.sh --install-deps -y`
+
 ### 方式 A：当前用户安装（推荐日常桌面使用）
 
 ```bash
