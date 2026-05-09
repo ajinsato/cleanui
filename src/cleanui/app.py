@@ -1753,20 +1753,24 @@ def main():
         version=f"%(prog)s {PACKAGE_VERSION}",
     )
     parser.add_argument(
-        "--sudo-warmup",
+        "--no-sudo-warmup",
         action="store_true",
-        help="启动界面前执行 sudo -v，在 sudo 缓存时间内便于清理命令免重复输入密码",
+        help="跳过启动前的 sudo -v（自动化脚本或无需系统级清理时使用）",
     )
     args = parser.parse_args()
 
-    if args.sudo_warmup:
-        print("正在请求 sudo 授权（用于后续「立即清理」中的系统级命令）…", file=sys.stderr)
+    if not args.no_sudo_warmup:
+        print(
+            "CleanUI：即将请求 sudo 密码（用于后续系统级清理命令）；"
+            "若跳过请使用 cleanui --no-sudo-warmup",
+            file=sys.stderr,
+        )
         if _sudo_warmup():
             print("sudo 凭证已刷新。", file=sys.stderr)
         else:
             print(
-                "提示: sudo 未通过（可能未输入密码或无权限）。"
-                "界面仍将启动，但部分需管理员权限的清理可能失败。",
+                "提示: sudo 未通过（未输入密码、无 tty 或无权限）。"
+                "仍将尝试启动界面；仅用户目录类清理可用，系统项可能失败。",
                 file=sys.stderr,
             )
 
@@ -1786,16 +1790,7 @@ def main():
 
 
 def main_sudo_warmup():
-    """与「cleanui --sudo-warmup」等价，便于菜单或别名固定带凭证预热。"""
-    argv = sys.argv[1:]
-    skip_warmup = (
-        "--sudo-warmup" in argv
-        or "--version" in argv
-        or "--help" in argv
-        or "-h" in argv
-    )
-    if not skip_warmup:
-        sys.argv.insert(1, "--sudo-warmup")
+    """兼容旧版 cleanui-sudo 入口；默认 cleanui 已会先 sudo -v。"""
     main()
 
 
