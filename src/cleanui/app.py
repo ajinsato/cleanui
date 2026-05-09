@@ -1725,6 +1725,21 @@ def _gui_environment_ready():
     return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
 
+def _sudo_warmup():
+    """
+    执行 sudo -v，刷新本机 sudo 时间戳（默认约 15 分钟内免重复输密码）。
+    清理步骤里的 shell 若含 sudo，可在该窗口内非交互执行。
+    """
+    try:
+        r = subprocess.run(
+            ["sudo", "-v"],
+            timeout=120,
+        )
+        return r.returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return False
+
+
 def main():
     import argparse
 
@@ -1737,7 +1752,23 @@ def main():
         action="version",
         version=f"%(prog)s {PACKAGE_VERSION}",
     )
-    parser.parse_args()
+    parser.add_argument(
+        "--sudo-warmup",
+        action="store_true",
+        help="启动界面前执行 sudo -v，在 sudo 缓存时间内便于清理命令免重复输入密码",
+    )
+    args = parser.parse_args()
+
+    if args.sudo_warmup:
+        print("正在请求 sudo 授权（用于后续「立即清理」中的系统级命令）…", file=sys.stderr)
+        if _sudo_warmup():
+            print("sudo 凭证已刷新。", file=sys.stderr)
+        else:
+            print(
+                "提示: sudo 未通过（可能未输入密码或无权限）。"
+                "界面仍将启动，但部分需管理员权限的清理可能失败。",
+                file=sys.stderr,
+            )
 
     if not _gui_environment_ready():
         print(
@@ -1752,6 +1783,20 @@ def main():
         print(f"无法初始化图形界面: {e}", file=sys.stderr)
         sys.exit(1)
     app.root.mainloop()
+
+
+def main_sudo_warmup():
+    """与「cleanui --sudo-warmup」等价，便于菜单或别名固定带凭证预热。"""
+    argv = sys.argv[1:]
+    skip_warmup = (
+        "--sudo-warmup" in argv
+        or "--version" in argv
+        or "--help" in argv
+        or "-h" in argv
+    )
+    if not skip_warmup:
+        sys.argv.insert(1, "--sudo-warmup")
+    main()
 
 
 if __name__ == "__main__":

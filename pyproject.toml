@@ -22,6 +22,7 @@ classifiers = [
 
 [project.scripts]
 cleanui = "cleanui.app:main"
+cleanui-sudo = "cleanui.app:main_sudo_warmup"
 
 [tool.setuptools.packages.find]
 where = ["src"]
